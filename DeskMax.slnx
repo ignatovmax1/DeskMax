@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DeskMax.Contracts/DeskMax.Contracts.csproj" />
+    <Project Path="src/DeskMax.Server/DeskMax.Server.csproj" />
+    <Project Path="src/DeskMax.Windows/DeskMax.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DeskMax.Server.Tests/DeskMax.Server.Tests.csproj" />
+  </Folder>
+</Solution>

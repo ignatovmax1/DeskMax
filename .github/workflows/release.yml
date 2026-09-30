@@ -1,0 +1,27 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - run: dotnet test DeskMax.slnx -c Release
+      - run: dotnet publish src/DeskMax.Windows/DeskMax.Windows.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/app
+      - run: choco install innosetup -y
+      - run: ISCC.exe installer/DeskMax.iss
+      - shell: pwsh
+        run: |
+          $hash=(Get-FileHash artifacts/installer/DeskMaxSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  DeskMaxSetup.exe" | Set-Content artifacts/installer/DeskMaxSetup.exe.sha256 -Encoding ascii
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/app/DeskMax.exe
+            artifacts/installer/DeskMaxSetup.exe
+            artifacts/installer/DeskMaxSetup.exe.sha256

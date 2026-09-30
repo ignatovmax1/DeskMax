@@ -1,0 +1,13 @@
+services:
+  api:
+    build: { context: ., dockerfile: src/DeskMax.Server/Dockerfile }
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Security__RotatingCodeKey: ${ROTATING_CODE_KEY}
+    ports: ["127.0.0.1:8080:8080"]
+    restart: unless-stopped
+  coturn:
+    image: coturn/coturn:4.6.3
+    network_mode: host
+    command: -n --log-file=stdout --fingerprint --lt-cred-mech --realm=${TURN_REALM} --user=${TURN_USER}:${TURN_PASSWORD} --min-port=49160 --max-port=49200
+    restart: unless-stopped

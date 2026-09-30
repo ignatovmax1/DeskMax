@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+.env
+*.log
+artifacts/
+deskmax-deploy.*
+.tool-install*
+.dotnet-install*
