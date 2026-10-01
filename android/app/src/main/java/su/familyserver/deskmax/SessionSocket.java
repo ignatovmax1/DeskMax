@@ -14,7 +14,7 @@ public final class SessionSocket extends WebSocketListener {
  public SessionSocket(String base,DeskApi.Identity identity,String id,boolean host,Listener listener){this.base=base;this.identity=identity;this.id=id;this.host=host;this.listener=listener;}
  public void start(){String url=(base.endsWith("/")?base:base+"/")+"api/sessions/"+id+"/transport";if(!ProtocolLimits.validServer(base)){finish("HTTPS required");return;}
   socket=DeskApi.HTTP.newBuilder().callTimeout(0,TimeUnit.SECONDS).pingInterval(20,TimeUnit.SECONDS).build().newWebSocket(new Request.Builder().url(url.replaceFirst("https:","wss:")).build(),this);
-  timer.scheduleAtFixedRate(()->{if(System.currentTimeMillis()-last>20000)finish("Соединение потеряно");},5,5,TimeUnit.SECONDS);
+  timer.scheduleWithFixedDelay(()->{if(System.currentTimeMillis()-last>20000)finish("Соединение потеряно");},5,5,TimeUnit.SECONDS);
   timer.schedule(()->{if(!ready)finish("Время ожидания сеанса истекло");},60,TimeUnit.SECONDS);
  }
  @Override public void onOpen(WebSocket s,Response r){if(closed.get()){s.cancel();return;}s.send(DeskApi.json("deviceId",identity.id,"deviceSecret",identity.secret).toString());}
