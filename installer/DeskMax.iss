@@ -1,6 +1,6 @@
 #define MyAppName "DeskMax"
 #ifndef MyAppVersion
-#define MyAppVersion "0.4.2"
+#define MyAppVersion "0.4.3"
 #endif
 #define MyAppPublisher "DeskMax"
 #define MyAppExeName "DeskMax.exe"

@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -21,11 +23,15 @@ public partial class MainWindow : Window
     private int incomingCount;
     private bool busy;
     private DateTimeOffset nextPoll;
+    private int consecutiveFailures;
+    private readonly string preferences = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskMax", "preferences.json");
     private Uri server = new("https://anydesk.familyserver.su/");
     public MainWindow()
     {
         InitializeComponent();
         DarkThemeToggle.IsChecked = ThemeManager.IsDark;
+        ServerAddress.Text = server.ToString().TrimEnd('/');
+        LoadServerPreference();
         DeviceNameText.Text = Environment.MachineName;
         VersionText.Text = $"Версия {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)}";
         timer.Tick += async (_, _) => await TickAsync();
@@ -68,14 +74,14 @@ public partial class MainWindow : Window
         }
         return await response.Content.ReadFromJsonAsync<T>(lifetime.Token) ?? throw new InvalidOperationException("Сервер вернул пустой ответ.");
     }
-    private void SetOnline(bool online) { OnlineText.Text = online ? "Сервер доступен" : "Не подключено"; CopyButton.IsEnabled = ConnectButton.IsEnabled = online && device is not null; }
+    private void SetOnline(bool online) { OnlineText.Text = online ? "●  Сервер доступен" : consecutiveFailures > 0 ? "↻  Переподключение" : "○  Не подключено"; CopyButton.IsEnabled = online && device is not null; ConnectButton.IsEnabled = online && device is not null && ConnectionCode.Text.Length == 6; ReconnectButton.Visibility = online || busy ? Visibility.Collapsed : Visibility.Visible; HostStatusText.Text = online ? "Готов к работе" : consecutiveFailures > 0 ? "Восстанавливаем связь" : "Ожидает подключения"; }
     private async Task RegisterAsync()
     {
         if (busy) return;
         if (remote is not null) { Log("Сначала завершите активный сеанс."); return; }
         busy = true; SaveButton.IsEnabled = false; SetOnline(false); device = null; code = null; outgoing = null; RequestsList.ItemsSource = null; DeviceIdText.Text = RotatingCodeText.Text = "—";
-        try { device = await Post<RegisterDeviceResponse>("api/devices", new RegisterDeviceRequest(Environment.MachineName, "Windows")); await RefreshCode(); SetOnline(true); Log("Устройство зарегистрировано. Можно отправлять и принимать запросы."); }
-        catch (Exception ex) { ShowError(ex); }
+        try { device = await Post<RegisterDeviceResponse>("api/devices", new RegisterDeviceRequest(Environment.MachineName, "Windows")); await RefreshCode(); consecutiveFailures = 0; SetOnline(true); Log("Устройство зарегистрировано. Можно отправлять и принимать запросы."); }
+        catch (Exception ex) { consecutiveFailures++; SetOnline(false); ShowError(ex); }
         finally { busy = false; SaveButton.IsEnabled = true; }
     }
     private async Task RefreshCode() { if (device is null) return; code = await Post<RotatingCodeResponse>($"api/devices/{device.DeviceId}/code", new ApproveSessionRequest(device.DeviceSecret)); DeviceIdText.Text = Format(device.DeviceId); RotatingCodeText.Text = Format(code.Code); }
@@ -83,7 +89,8 @@ public partial class MainWindow : Window
     private async Task TickAsync()
     {
         if (code is not null) { var left = code.ExpiresAt - DateTimeOffset.UtcNow; ExpiryText.Text = left > TimeSpan.Zero ? $"Обновится через {left:mm\\:ss}" : "Обновление кода…"; }
-        if (busy || device is null || DateTimeOffset.UtcNow < nextPoll) return;
+        if (busy || DateTimeOffset.UtcNow < nextPoll) return;
+        if (device is null) { nextPoll = DateTimeOffset.UtcNow.AddSeconds(10); await RegisterAsync(); return; }
         busy = true; nextPoll = DateTimeOffset.UtcNow.AddSeconds(5);
         try
         {
@@ -96,14 +103,15 @@ public partial class MainWindow : Window
             if (incoming.Length > incomingCount) Log($"Новый запрос доступа. Откройте «Запросы доступа»: ожидают {incoming.Length}.");
             incomingCount = incoming.Length;
             if (outgoing is Guid id) { var result = await Post<SessionResponse>($"api/sessions/{id}/status", new SessionCredentialsRequest(device.DeviceId, device.DeviceSecret)); if (result.Status != "pending-owner-confirmation") { outgoing = null; Log(SessionText(result.Status)); if (result.Status == "approved") OpenRemote(id, false); } }
-            SetOnline(true);
+            consecutiveFailures = 0; SetOnline(true);
         }
-        catch (Exception ex) { SetOnline(false); ShowError(ex); nextPoll = DateTimeOffset.UtcNow.AddSeconds(15); }
+        catch (Exception ex) { consecutiveFailures++; SetOnline(false); if (device is null || ex is HttpRequestException or TaskCanceledException) { ShowError(ex); nextPoll = DateTimeOffset.UtcNow.AddSeconds(Math.Min(30, 3 * consecutiveFailures)); } else { ShowError(ex); nextPoll = DateTimeOffset.UtcNow.AddSeconds(15); } }
         finally { busy = false; }
     }
     private static string SessionText(string status) => status switch { "approved" => "Владелец разрешил запрос. Открываем сеанс.", "rejected" => "Владелец отклонил запрос.", "revoked" => "Доступ отозван.", "ended" => "Сеанс завершён.", "expired" => "Срок запроса истёк. Отправьте новый запрос.", _ => "Запрос отправлен. Ожидаем разрешения владельца." };
     private void ShowError(Exception ex) { if (lifetime.IsCancellationRequested) return; Log(ex is HttpRequestException or TaskCanceledException ? "Сервер недоступен. Проверьте его запуск и адрес в настройках." : ex.Message); }
     private void CopyId_Click(object sender, RoutedEventArgs e) { if (device is null) return; try { Clipboard.SetText(device.DeviceId); Log("ID скопирован."); } catch (System.Runtime.InteropServices.COMException) { Log("Буфер обмена занят. Попробуйте ещё раз."); } }
+    private void ConnectionCode_TextChanged(object sender, TextChangedEventArgs e) => ConnectButton.IsEnabled = device is not null && ConnectionCode.Text.Length == 6 && !busy;
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
         var value = ConnectionCode.Text.Trim();
@@ -138,13 +146,15 @@ public partial class MainWindow : Window
         HistoryPage.Visibility = page == "History" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         PageTitle.Text = page switch { "Requests" => "Разрешение остаётся за вами.", "History" => "История действий", "Settings" => "Настройки подключения", _ => "Ваш рабочий стол. Рядом." };
+        PageSubtitle.Text = page switch { "Requests" => "Просматривайте запросы и разрешайте только знакомым устройствам.", "History" => "События этого запуска DeskMax.", "Settings" => "Сервер и внешний вид приложения.", _ => "Подключайтесь к близким устройствам — каждый сеанс начинается с разрешения владельца." };
+        foreach (var pair in new[] { ("Home", HomeNav), ("Requests", RequestsNav), ("History", HistoryNav), ("Settings", SettingsNav) }) pair.Item2.Background = (string)pair.Item2.Tag == page ? (System.Windows.Media.Brush)FindResource("SidebarButton") : System.Windows.Media.Brushes.Transparent;
     }
     private async void SaveSettings_Click(object sender, RoutedEventArgs e)
     {
-        if (!Uri.TryCreate(ServerAddress.Text.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) || (uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback))) { Log("Укажите HTTPS-адрес сервера или HTTP-адрес localhost."); return; }
+        if (!IsValidServer(ServerAddress.Text, out var uri)) { Log("Укажите HTTPS-адрес сервера или HTTP-адрес localhost."); return; }
         if (busy) { Log("Дождитесь завершения текущего запроса."); return; }
         if (remote is not null) { Log("Завершите сеанс перед сменой сервера."); return; }
-        server = uri; await RegisterAsync();
+        server = uri; SaveServerPreference(); await RegisterAsync();
     }
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
@@ -157,5 +167,51 @@ public partial class MainWindow : Window
     private void Theme_Changed(object sender, RoutedEventArgs e)
     {
         if (IsInitialized) ThemeManager.Apply(DarkThemeToggle.IsChecked == true);
+    }
+    private async void Reconnect_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy) return;
+        if (device is not null)
+        {
+            busy = true; ReconnectButton.IsEnabled = false;
+            try
+            {
+                using var response = await http.GetAsync(new Uri(server, "health"), lifetime.Token);
+                response.EnsureSuccessStatusCode(); consecutiveFailures = 0; nextPoll = DateTimeOffset.MinValue;
+                if (!timer.IsEnabled) timer.Start();
+                busy = false; SetOnline(true); Log("Сервер отвечает. Обновляем подключение устройства.");
+                await RegisterAsync();
+            }
+            catch (Exception ex) { consecutiveFailures++; SetOnline(false); ShowError(ex); }
+            finally { busy = false; ReconnectButton.IsEnabled = true; }
+        }
+        else await RegisterAsync();
+    }
+    private void LoadServerPreference()
+    {
+        try
+        {
+            if (!File.Exists(preferences)) return;
+            using var document = JsonDocument.Parse(File.ReadAllText(preferences));
+            if (document.RootElement.TryGetProperty("Server", out var value) && value.GetString() is string address && IsValidServer(address, out var saved))
+            { server = saved; ServerAddress.Text = saved.ToString().TrimEnd('/'); }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { }
+    }
+    private void SaveServerPreference()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(preferences)!);
+            var dark = DarkThemeToggle.IsChecked == true;
+            File.WriteAllText(preferences, JsonSerializer.Serialize(new { Dark = dark, Server = server.ToString().TrimEnd('/') }));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log("Адрес применён, но не удалось сохранить его для следующего запуска."); }
+    }
+    private static bool IsValidServer(string address, out Uri uri)
+    {
+        if (!Uri.TryCreate(address.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var parsed)) { uri = new Uri("https://anydesk.familyserver.su/"); return false; }
+        uri = parsed;
+        return string.IsNullOrEmpty(uri.UserInfo) && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment) && (uri.Scheme == "https" || uri.Scheme == "http" && uri.IsLoopback);
     }
 }

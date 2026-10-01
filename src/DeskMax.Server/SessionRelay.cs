@@ -54,7 +54,7 @@ public sealed class SessionRelay(DeviceRegistry registry)
             var watch = Watch(id, credentials, room, peer, linked.Token);
             await Task.WhenAny(send, receive, watch);
             linked.Cancel();
-            socket.Abort();
+            SafeAbort(socket);
             try { await Task.WhenAll(send, receive, watch); } catch (Exception e) when (e is OperationCanceledException or WebSocketException or InvalidOperationException or JsonException) { }
         }
         catch (Exception e) when (e is OperationCanceledException or WebSocketException or InvalidOperationException or JsonException or UnauthorizedAccessException or KeyNotFoundException) { }
@@ -65,13 +65,19 @@ public sealed class SessionRelay(DeviceRegistry registry)
                 lock (room.Gate)
                 {
                     room.Cancellation.Cancel();
-                    room.Host?.Socket.Abort(); room.Viewer?.Socket.Abort();
+                    if (room.Host != null) SafeAbort(room.Host.Socket);
+                    if (room.Viewer != null) SafeAbort(room.Viewer.Socket);
                 }
                 registry.EndTransport(id);
                 rooms.TryRemove(new KeyValuePair<Guid, Room>(id, room));
             }
-            socket.Abort();
+            SafeAbort(socket);
         }
+    }
+    private static void SafeAbort(WebSocket socket)
+    {
+        try { socket.Abort(); }
+        catch (ObjectDisposedException) { }
     }
     private async Task Watch(Guid id, SessionCredentialsRequest credentials, Room room, Peer peer, CancellationToken token)
     {
