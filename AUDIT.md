@@ -5,6 +5,7 @@
 - Серверный nginx для `anydesk.familyserver.su` переведён в low-latency WebSocket proxy: `proxy_buffering off`, `proxy_request_buffering off`, `proxy_cache off`, `proxy_read_timeout 3600s`, `proxy_send_timeout 3600s`, `client_max_body_size 4m`. Публичный HTTPS/WSS smoke после reload прошёл.
 - Windows и Android-хосты передают до 10 кадров/с вместо 5. Длинная сторона кадра уменьшена до 1280 px, JPEG quality до 55, чтобы меньше забивать канал и быстрее отдавать свежие кадры.
 - Windows viewer больше не блокирует чтение WebSocket на декодировании: он хранит только последний полученный кадр и отбрасывает устаревшие, если декодер не успевает.
+- Windows updater получил fallback через `github.com/.../releases/latest`, чтобы stable-обновление находилось даже при временном GitHub API rate limit.
 
 ## Изменения и проверка 0.4.0
 

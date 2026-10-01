@@ -22,12 +22,23 @@ public sealed class UpdateService
     {
         using var response = await http.GetAsync(Endpoint, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests) return await CheckLatestRedirectAsync(cancellationToken);
         response.EnsureSuccessStatusCode(); using var json = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken)); var root = json.RootElement;
         if (root.TryGetProperty("draft", out var draft) && draft.GetBoolean() || root.TryGetProperty("prerelease", out var preview) && preview.GetBoolean()) return null;
         var tag = root.GetProperty("tag_name").GetString()?.TrimStart('v') ?? "0.0.0"; if (!Version.TryParse(tag, out var version) || new Version(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision)) <= new Version(Current.Major, Current.Minor, Math.Max(0, Current.Build), Math.Max(0, Current.Revision))) return null;
         string? installer = null, checksum = null; foreach (var a in root.GetProperty("assets").EnumerateArray()) { var name = a.GetProperty("name").GetString(); var url = a.GetProperty("browser_download_url").GetString(); if (name == "DeskMaxSetup.exe") installer = url; else if (name == "DeskMaxSetup.exe.sha256") checksum = url; }
         if (installer is null || checksum is null) throw new InvalidDataException("В релизе нет установщика или SHA-256.");
         ValidateUrl(installer); ValidateUrl(checksum); return new(tag, installer, checksum);
+    }
+    private async Task<UpdateInfo?> CheckLatestRedirectAsync(CancellationToken cancellationToken)
+    {
+        using var response = await http.GetAsync("https://github.com/ignatovmax1/DeskMax/releases/latest", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var segments = response.RequestMessage?.RequestUri?.Segments;
+        var tag = segments is { Length: > 0 } ? segments[^1].Trim('/').TrimStart('v') : "0.0.0";
+        if (!Version.TryParse(tag, out var version) || new Version(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision)) <= new Version(Current.Major, Current.Minor, Math.Max(0, Current.Build), Math.Max(0, Current.Revision))) return null;
+        var baseUrl = $"https://github.com/ignatovmax1/DeskMax/releases/download/v{tag}/";
+        return new(tag, baseUrl + "DeskMaxSetup.exe", baseUrl + "DeskMaxSetup.exe.sha256");
     }
     private static void ValidateUrl(string value)
     {

@@ -30,6 +30,18 @@ public class UpdateTests
         var service = new UpdateService(new HttpClient(new Handler(_ => new(HttpStatusCode.NotFound))));
         Assert.IsNull(await service.CheckAsync());
     }
+    [TestMethod] public async Task ApiRateLimitFallsBackToLatestRedirect()
+    {
+        var service = new UpdateService(new HttpClient(new Handler(request =>
+            request.RequestUri!.Host == "api.github.com"
+                ? new(HttpStatusCode.Forbidden)
+                : new(HttpStatusCode.OK) { RequestMessage = new(HttpMethod.Get, "https://github.com/ignatovmax1/DeskMax/releases/tag/v0.4.2") })),
+            new Version(0, 4, 1, 0));
+        var update = await service.CheckAsync();
+        Assert.IsNotNull(update);
+        Assert.AreEqual("0.4.2", update.Version);
+        Assert.AreEqual("https://github.com/ignatovmax1/DeskMax/releases/download/v0.4.2/DeskMaxSetup.exe", update.InstallerUrl);
+    }
     [TestMethod] public async Task EmptyChecksumDoesNotDownloadInstaller()
     {
         var calls = 0;
