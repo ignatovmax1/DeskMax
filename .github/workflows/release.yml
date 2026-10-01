@@ -10,17 +10,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: "8.0.x" }
+        with: { dotnet-version: "10.0.x" }
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected vMAJOR.MINOR.PATCH tag' }
+          [xml]$project = Get-Content src/DeskMax.Windows/DeskMax.Windows.csproj
+          if ($project.Project.PropertyGroup.Version -ne $version) { throw 'Tag and project version differ' }
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
       - run: dotnet test DeskMax.slnx -c Release
       - run: dotnet publish src/DeskMax.Windows/DeskMax.Windows.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/app
       - run: choco install innosetup -y
-      - run: ISCC.exe installer/DeskMax.iss
+      - run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:RELEASE_VERSION" installer/DeskMax.iss'
       - shell: pwsh
         run: |
           $hash=(Get-FileHash artifacts/installer/DeskMaxSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  DeskMaxSetup.exe" | Set-Content artifacts/installer/DeskMaxSetup.exe.sha256 -Encoding ascii
       - uses: softprops/action-gh-release@v2
         with:
+          name: DeskMax ${{ github.ref_name }} — Stable
+          prerelease: false
+          generate_release_notes: true
           files: |
             artifacts/app/DeskMax.exe
             artifacts/installer/DeskMaxSetup.exe

@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DeskMax.Server\DeskMax.Server.csproj" />
+    <Compile Include="..\..\src\DeskMax.Windows\UpdateService.cs" Link="UpdateService.cs" />
   </ItemGroup>
 
 </Project>
