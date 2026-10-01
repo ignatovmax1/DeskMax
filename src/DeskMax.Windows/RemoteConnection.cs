@@ -14,7 +14,7 @@ public sealed class RemoteConnection(Uri server, RegisterDeviceResponse device, 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly ClientWebSocket socket = new();
     private readonly CancellationTokenSource stop = new();
-    private readonly Channel<RemoteInputMessage> inputs = Channel.CreateBounded<RemoteInputMessage>(new BoundedChannelOptions(256) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+    private readonly Channel<RemoteInputMessage> inputs = Channel.CreateBounded<RemoteInputMessage>(new BoundedChannelOptions(128) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
     private readonly TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly DesktopInput input = new();
     private Task? run;
@@ -116,10 +116,10 @@ public sealed class RemoteConnection(Uri server, RegisterDeviceResponse device, 
         {
             while (!stop.IsCancellationRequested)
             {
-                var frame = await Task.Run(() => DesktopCapture.CaptureJpeg(), stop.Token);
+                var frame = await Task.Run(() => DesktopCapture.CaptureJpeg(maxWidth: 1280, quality: 55), stop.Token);
                 if (frame.Length > 2 * 1024 * 1024) throw new InvalidDataException("Кадр превышает допустимый размер.");
                 await socket.SendAsync(frame, WebSocketMessageType.Binary, true, stop.Token);
-                await Task.Delay(200, stop.Token);
+                await Task.Delay(100, stop.Token);
             }
         }
         else

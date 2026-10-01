@@ -17,6 +17,9 @@ public partial class RemoteWindow : Window
     private bool hotkeyRegistered;
     private long lastMove;
     private double lastX, lastY;
+    private readonly object frameGate = new();
+    private byte[]? pendingFrame;
+    private int frameDecodeScheduled;
     private HwndSource? source;
     private const int StopHotkey = 0xD35;
     public RemoteWindow(Uri server, RegisterDeviceResponse device, Guid sessionId, bool host)
@@ -32,16 +35,45 @@ public partial class RemoteWindow : Window
         }
         connection.StateChanged = text => OnUi(() => StateText.Text = text);
         connection.Finished = text => OnUi(() => { StateText.Text = text; ControlEnabled.IsEnabled = false; StopButton.Content = "Закрыть"; });
-        connection.FrameReceived = async frame =>
+        connection.FrameReceived = frame =>
         {
-            if (closing) return;
+            if (closing) return Task.CompletedTask;
+            lock (frameGate)
+            {
+                pendingFrame = frame;
+                if (frameDecodeScheduled != 0) return Task.CompletedTask;
+                frameDecodeScheduled = 1;
+            }
+            _ = Task.Run(DecodeLatestFramesAsync).ContinueWith(task =>
+            {
+                if (task.Exception is not null) OnUi(() => { StateText.Text = "Сеанс остановлен: повреждённый видеокадр."; Close(); });
+            }, TaskContinuationOptions.OnlyOnFaulted);
+            return Task.CompletedTask;
+        };
+    }
+    private async Task DecodeLatestFramesAsync()
+    {
+        while (!closing)
+        {
+            byte[]? frame;
+            lock (frameGate)
+            {
+                frame = pendingFrame;
+                pendingFrame = null;
+                if (frame is null) { frameDecodeScheduled = 0; return; }
+            }
             JpegFrame.ReadSize(frame);
             using var memory = new MemoryStream(frame);
-            var bitmap = new BitmapImage(); bitmap.BeginInit(); bitmap.DecodePixelWidth = 1600; bitmap.CacheOption = BitmapCacheOption.OnLoad; bitmap.StreamSource = memory; bitmap.EndInit();
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.DecodePixelWidth = 1280;
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.StreamSource = memory;
+            bitmap.EndInit();
             if (bitmap.PixelWidth > 4096 || bitmap.PixelHeight > 4096) throw new InvalidDataException("Недопустимое разрешение кадра.");
             bitmap.Freeze();
             await Dispatcher.InvokeAsync(() => { if (!closing) { RemoteImage.Source = bitmap; WaitingText.Visibility = Visibility.Collapsed; } });
-        };
+        }
     }
     private void OnUi(Action action) { if (!closing && !Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(() => { if (!closing) action(); }); }
     private async void Window_Loaded(object sender, RoutedEventArgs e) => await connection.StartAsync();

@@ -120,16 +120,16 @@ public final class ScreenShareService extends Service {
         Image image = null; Bitmap padded = null, cropped = null, scaled = null;
         try {
             image = source.acquireLatestImage(); if (image == null) return;
-            long now = SystemClock.elapsedRealtime(); if (ending || !ready || now - lastFrame < 200) return;
+            long now = SystemClock.elapsedRealtime(); if (ending || !ready || now - lastFrame < 100) return;
             lastFrame = now;
             Image.Plane plane = image.getPlanes()[0]; ByteBuffer bytes = plane.getBuffer();
             int stride = plane.getPixelStride(), row = plane.getRowStride(), w = image.getWidth(), h = image.getHeight();
             if (stride != 4) return;
             padded = Bitmap.createBitmap(row / stride, h, Bitmap.Config.ARGB_8888); padded.copyPixelsFromBuffer(bytes);
             cropped = Bitmap.createBitmap(padded, 0, 0, w, h);
-            double scale = Math.min(1d, 1600d / Math.max(w, h));
+            double scale = Math.min(1d, 1280d / Math.max(w, h));
             scaled = scale < 1 ? Bitmap.createScaledBitmap(cropped, Math.max(1, (int)(w * scale)), Math.max(1, (int)(h * scale)), true) : cropped;
-            ByteArrayOutputStream encoded = new ByteArrayOutputStream(); scaled.compress(Bitmap.CompressFormat.JPEG, 65, encoded);
+            ByteArrayOutputStream encoded = new ByteArrayOutputStream(); scaled.compress(Bitmap.CompressFormat.JPEG, 55, encoded);
             SessionSocket current = socket; if (current != null && ready && !ending) current.sendFrame(encoded.toByteArray());
         } catch (RuntimeException failure) { finishSession(); }
         finally {

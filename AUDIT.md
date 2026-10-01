@@ -1,5 +1,11 @@
 # Аудит DeskMax 0.4.0 — 1 октября 2026
 
+## Тюнинг задержки 0.4.1
+
+- Серверный nginx для `anydesk.familyserver.su` переведён в low-latency WebSocket proxy: `proxy_buffering off`, `proxy_request_buffering off`, `proxy_cache off`, `proxy_read_timeout 3600s`, `proxy_send_timeout 3600s`, `client_max_body_size 4m`. Публичный HTTPS/WSS smoke после reload прошёл.
+- Windows и Android-хосты передают до 10 кадров/с вместо 5. Длинная сторона кадра уменьшена до 1280 px, JPEG quality до 55, чтобы меньше забивать канал и быстрее отдавать свежие кадры.
+- Windows viewer больше не блокирует чтение WebSocket на декодировании: он хранит только последний полученный кадр и отбрасывает устаревшие, если декодер не успевает.
+
 ## Изменения и проверка 0.4.0
 
 - Windows: тёмная тема по умолчанию, светлая тема в настройках, сохранение выбора. Цвета основного окна и окон сеанса используют общие ресурсы.
