@@ -8,4 +8,4 @@ public record ApproveSessionRequest(string DeviceSecret);
 public record SessionCredentialsRequest(string DeviceId, string DeviceSecret);
 public record IncomingSessionResponse(Guid SessionId, string RequesterDeviceId, string RequesterDeviceName, string Status, DateTimeOffset ExpiresAt);
 public record GrantAccessRequest(string OwnerDeviceSecret, string TrustedDeviceId, DateTimeOffset? ExpiresAt);
-public record RemoteInputMessage(string Kind, double X = 0, double Y = 0, int Key = 0, int Delta = 0, string? Button = null);
+public record RemoteInputMessage(string Kind, double X = 0, double Y = 0, int Key = 0, int Delta = 0, string? Button = null, string? Text = null);

@@ -17,6 +17,17 @@ public sealed class DesktopInput
         {
             switch (message.Kind)
             {
+                case "text":
+                    if (message.Text is not { Length: > 0 and <= 1024 } || message.Text.Contains('\0')) return;
+                    // UTF-16 code units preserve non-Latin text and surrogate pairs in Windows input.
+                    var unicode = new List<Input>();
+                    foreach (char character in message.Text)
+                    {
+                        unicode.Add(new Input { Type = 1, Union = new InputUnion { Keyboard = new KeyboardInput { Scan = character, Flags = 4 } } });
+                        unicode.Add(new Input { Type = 1, Union = new InputUnion { Keyboard = new KeyboardInput { Scan = character, Flags = 6 } } });
+                    }
+                    Send(unicode.ToArray());
+                    break;
                 case "move":
                     if (!double.IsFinite(message.X) || !double.IsFinite(message.Y) || message.X is < 0 or > 1 || message.Y is < 0 or > 1) return;
                     Send(Mouse(0x8001, (int)Math.Round(message.X * 65535), (int)Math.Round(message.Y * 65535)));

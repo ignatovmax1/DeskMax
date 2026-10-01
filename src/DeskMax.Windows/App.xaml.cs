@@ -9,5 +9,10 @@ namespace DeskMax.Windows;
 /// </summary>
 public partial class App : Application
 {
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        ThemeManager.Load();
+        base.OnStartup(e);
+    }
 }
 

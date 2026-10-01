@@ -37,6 +37,16 @@ public class TransportTests
         Assert.IsTrue(SessionRelay.ValidInput(new("move", .5, .5)));
     }
     [TestMethod]
+    public void UnicodeTextAcceptsBoundedContentAndRejectsEmptyOversizedOrNul()
+    {
+        Assert.IsTrue(SessionRelay.ValidInput(new("text", Text: "Привет 世界 👋")));
+        Assert.IsTrue(SessionRelay.ValidInput(new("text", Text: new string('я', 1024))));
+        Assert.IsFalse(SessionRelay.ValidInput(new("text")));
+        Assert.IsFalse(SessionRelay.ValidInput(new("text", Text: "")));
+        Assert.IsFalse(SessionRelay.ValidInput(new("text", Text: new string('я', 1025))));
+        Assert.IsFalse(SessionRelay.ValidInput(new("text", Text: "before\0after")));
+    }
+    [TestMethod]
     public async Task RealWebSocketsRelayFramesInputAndStopIdleSession()
     {
         var builder = WebApplication.CreateBuilder(); builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -68,6 +78,13 @@ public class TransportTests
         var input = Encoding.UTF8.GetBytes("{\"kind\":\"keyDown\",\"key\":65}");
         await viewerSocket.SendAsync(input, WebSocketMessageType.Text, true, timeout.Token);
         Assert.Contains("keyDown", await Text(hostSocket, timeout.Token));
+        var unicode = "Привет 世界 👋";
+        await viewerSocket.SendAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new RemoteInputMessage("text", Text: unicode), new JsonSerializerOptions(JsonSerializerDefaults.Web))), WebSocketMessageType.Text, true, timeout.Token);
+        using (var relayed = JsonDocument.Parse(await Text(hostSocket, timeout.Token)))
+        {
+            Assert.AreEqual("text", relayed.RootElement.GetProperty("kind").GetString());
+            Assert.AreEqual(unicode, relayed.RootElement.GetProperty("text").GetString());
+        }
         db.Stop(session.SessionId, new(owner.DeviceId, owner.DeviceSecret));
         await AssertClosed(hostSocket, timeout.Token);
         await AssertClosed(viewerSocket, timeout.Token);

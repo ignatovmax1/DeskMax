@@ -1,0 +1,9 @@
+package su.familyserver.deskmax;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+public final class ProtocolLimits {
+ private ProtocolLimits(){}
+ public static boolean validServer(String base){try{URI uri=URI.create(base);return "https".equals(uri.getScheme())&&uri.getHost()!=null&&uri.getUserInfo()==null&&uri.getQuery()==null&&uri.getFragment()==null;}catch(IllegalArgumentException e){return false;}}
+ public static boolean validText(String text){if(text==null||text.isEmpty()||text.length()>1024)return false;for(int i=0;i<text.length();i++){char c=text.charAt(i);if(Character.isHighSurrogate(c)){if(++i>=text.length()||!Character.isLowSurrogate(text.charAt(i)))return false;}else if(Character.isLowSurrogate(c)||c==0)return false;}return true;}
+ public static boolean validMessage(String text){return text!=null&&text.getBytes(StandardCharsets.UTF_8).length<=4096;}
+}

@@ -17,6 +17,7 @@ public sealed class SessionRelay(DeviceRegistry registry)
             "move" or "releaseAll" => true,
             "down" or "up" => input.Button is "left" or "right" or "middle",
             "keyDown" or "keyUp" => input.Key is >= 1 and <= 255,
+            "text" => input.Text is { Length: > 0 and <= 1024 } && !input.Text.Contains('\0'),
             "wheel" => input.Delta is >= -1200 and <= 1200,
             _ => false
         };

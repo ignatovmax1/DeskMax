@@ -7,3 +7,9 @@ artifacts/
 deskmax-deploy.*
 .tool-install*
 .dotnet-install*
+android/.gradle/
+android/**/build/
+android/local.properties
+*.p12
+*.jks
+*.keystore

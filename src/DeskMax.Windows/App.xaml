@@ -4,6 +4,12 @@
              xmlns:local="clr-namespace:DeskMax.Windows"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/DeskMax;component/Themes/Dark.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style TargetType="CheckBox"><Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/></Style>
+            <Style TargetType="ListBox"><Setter Property="Background" Value="{DynamicResource InputBackground}"/><Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/><Setter Property="BorderBrush" Value="{DynamicResource Border}"/></Style>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

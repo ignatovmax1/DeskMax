@@ -32,6 +32,13 @@ internal static class Program
         {
             try
             {
+                ThemeManager.Apply(true, false);
+                var darkColor = ((SolidColorBrush)app.FindResource("AppBackground")).Color;
+                ThemeManager.Apply(false, false);
+                var lightColor = ((SolidColorBrush)app.FindResource("AppBackground")).Color;
+                Require(darkColor != lightColor && lightColor.R > darkColor.R, "Theme resources did not switch.");
+                ThemeManager.Apply(true, false);
+                Console.WriteLine("PASS theme: dark/light dictionaries switch and restore without writing preferences");
                 window.Activate();
                 input.Focus();
                 await Task.Delay(500);
@@ -64,6 +71,13 @@ internal static class Program
                 while (input.Text.Length == 0 && wait.ElapsedMilliseconds < 2000) await Task.Delay(25);
                 Require(aKeyEvents == 1 && input.Text.Length == 1, $"SendInput did not deliver A and insert one character in own textbox (events {aKeyEvents}, text length {input.Text.Length}).");
                 Console.WriteLine("PASS keyboard: virtual A received and one character inserted in own textbox (active keyboard layout respected)");
+
+                input.Clear();
+                DesktopInput.Apply(new RemoteInputMessage("text", Text: "Привет 🙂"));
+                await Task.Delay(200);
+                Require(input.Text == "Привет 🙂", "Unicode SendInput did not preserve Cyrillic and surrogate pair.");
+                input.Clear();
+                Console.WriteLine("PASS Unicode: Cyrillic and emoji inserted into own textbox");
 
                 Require(GetForegroundWindow() == handle, "Focus changed; held-key cleanup test skipped.");
                 DesktopInput.Apply(new RemoteInputMessage("keyDown", Key: 0x41));

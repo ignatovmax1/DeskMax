@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        DarkThemeToggle.IsChecked = ThemeManager.IsDark;
         DeviceNameText.Text = Environment.MachineName;
         VersionText.Text = $"Версия {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)}";
         timer.Tick += async (_, _) => await TickAsync();
@@ -153,4 +154,8 @@ public partial class MainWindow : Window
         finally { UpdateButton.IsEnabled = true; UpdateButton.Content = "Проверить обновления"; }
     }
     private sealed record RequestItem(IncomingSessionResponse Value, string Label);
+    private void Theme_Changed(object sender, RoutedEventArgs e)
+    {
+        if (IsInitialized) ThemeManager.Apply(DarkThemeToggle.IsChecked == true);
+    }
 }

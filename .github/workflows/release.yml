@@ -27,12 +27,62 @@ jobs:
         run: |
           $hash=(Get-FileHash artifacts/installer/DeskMaxSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  DeskMaxSetup.exe" | Set-Content artifacts/installer/DeskMaxSetup.exe.sha256 -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            artifacts/app/DeskMax.exe
+            artifacts/installer/DeskMaxSetup.exe
+            artifacts/installer/DeskMaxSetup.exe.sha256
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Restore signing key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE"
+          printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/deskmax-release.p12"
+      - name: Build signed Android release
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/deskmax-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -F "versionName '$version'" app/build.gradle
+          bash gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
+          mkdir -p ../artifacts/android
+          cp app/build/outputs/apk/release/app-release.apk ../artifacts/android/DeskMax-Android.apk
+          cd ../artifacts/android
+          sha256sum DeskMax-Android.apk > DeskMax-Android.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: artifacts/android/*
+  publish:
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
       - uses: softprops/action-gh-release@v2
         with:
           name: DeskMax ${{ github.ref_name }} — Stable
           prerelease: false
           generate_release_notes: true
           files: |
-            artifacts/app/DeskMax.exe
-            artifacts/installer/DeskMaxSetup.exe
-            artifacts/installer/DeskMaxSetup.exe.sha256
+            artifacts/**/DeskMax.exe
+            artifacts/**/DeskMaxSetup.exe
+            artifacts/**/DeskMaxSetup.exe.sha256
+            artifacts/**/DeskMax-Android.apk
+            artifacts/**/DeskMax-Android.apk.sha256
