@@ -18,6 +18,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DeskMax.Server\DeskMax.Server.csproj" />
     <Compile Include="..\..\src\DeskMax.Windows\UpdateService.cs" Link="UpdateService.cs" />
+    <Compile Include="..\..\src\DeskMax.Windows\RemoteViewport.cs" Link="RemoteViewport.cs" />
+    <Compile Include="..\..\src\DeskMax.Windows\JpegFrame.cs" Link="JpegFrame.cs" />
   </ItemGroup>
 
 </Project>

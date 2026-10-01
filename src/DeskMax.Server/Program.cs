@@ -7,6 +7,7 @@ using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<DeviceRegistry>();
+builder.Services.AddSingleton<SessionRelay>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -33,6 +34,7 @@ app.Use(async (context, next) =>
     }
 });
 app.UseRateLimiter();
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
 app.MapGet("/health", () => new { status = "ok" });
 app.MapPost("/api/devices", (RegisterDeviceRequest r, DeviceRegistry db) => db.Register(r));
 app.MapPost("/api/devices/{id}/code", (string id, ApproveSessionRequest r, DeviceRegistry db) => db.Code(id, r.DeviceSecret, DateTimeOffset.UtcNow));
@@ -43,5 +45,7 @@ app.MapPost("/api/devices/{id}/trusted/{trustedId}/revoke", (string id, string t
 app.MapPost("/api/devices/{id}/sessions/incoming", (string id, ApproveSessionRequest r, DeviceRegistry db) => db.Incoming(id, r.DeviceSecret));
 app.MapPost("/api/sessions/{id:guid}/status", (Guid id, SessionCredentialsRequest r, DeviceRegistry db) => db.Status(id, r));
 app.MapPost("/api/sessions/{id:guid}/reject", (Guid id, ApproveSessionRequest r, DeviceRegistry db) => db.Reject(id, r));
+app.MapPost("/api/sessions/{id:guid}/stop", (Guid id, SessionCredentialsRequest r, DeviceRegistry db) => db.Stop(id, r));
+app.MapGet("/api/sessions/{id:guid}/transport", (Guid id, HttpContext context, SessionRelay relay) => relay.Handle(id, context)).RequireRateLimiting("connect");
 app.Run();
 public partial class Program;

@@ -1,0 +1,7 @@
+# Desktop smoke test
+
+Run `dotnet run --project tests/DeskMax.Desktop.Smoke` on an unlocked interactive Windows desktop. The test opens its own WPF window, checks actual JPEG screen capture, repeats capture to detect GDI handle leaks, types one A using the production SendInput path, and verifies normalized mouse movement. It closes its window, releases input, and restores the previous cursor position. It never writes captured desktop images to disk.
+
+Do not use the mouse or keyboard during this short test. The test refuses keyboard injection if its own window is not foreground and exits nonzero on failure. A locked desktop or headless CI cannot validate these APIs. The default run checks local native APIs; `--relay` also checks the real local end-to-end transport. Authorization rejection cases are covered separately by server tests.
+
+For an actual local end-to-end relay, build `src/DeskMax.Server` first and run `dotnet run --project tests/DeskMax.Desktop.Smoke -- --relay`. This starts an isolated server on a random loopback port with an ephemeral secret, registers two devices, approves their session, receives real desktop JPEG through the production host/viewer connections, types into the test textbox, clicks it and sends a wheel event through the relay, and verifies disconnect releases a held key. Mouse targets come from the textbox's actual screen coordinates and injection requires the test window to remain foreground. The child server is stopped at the end. These interactive tests are opt-in and are not invoked by `dotnet test`.

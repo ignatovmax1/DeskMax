@@ -55,7 +55,7 @@ public sealed class DeviceRegistry(IConfiguration config)
             if (target == request.RequesterDeviceId) throw new ArgumentException("Cannot connect to self.");
             foreach (var old in sessions.Where(s => s.Value.ExpiresAt <= now).Select(s => s.Key).ToArray()) sessions.Remove(old);
             var trusted = devices[target].Trusted.TryGetValue(request.RequesterDeviceId, out var expiry) && (expiry is null || expiry > now);
-            var session = new Session(Guid.NewGuid(), request.RequesterDeviceId, target, trusted ? "approved" : "pending-owner-confirmation", now.AddMinutes(2));
+            var session = new Session(Guid.NewGuid(), request.RequesterDeviceId, target, trusted ? "approved" : "pending-owner-confirmation", trusted ? now.AddHours(1) : now.AddMinutes(2));
             sessions.Add(session.Id, session);
             return session.Response(now);
         }
@@ -72,6 +72,7 @@ public sealed class DeviceRegistry(IConfiguration config)
             if (session.ExpiresAt <= DateTimeOffset.UtcNow) throw new InvalidOperationException("Request expired.");
             if (session.Status != "pending-owner-confirmation") throw new InvalidOperationException("Request has already been decided or revoked.");
             session.Status = decision;
+            if (decision == "approved") session.ExpiresAt = DateTimeOffset.UtcNow.AddHours(1);
             return session.Response(DateTimeOffset.UtcNow);
         }
     }
@@ -98,6 +99,28 @@ public sealed class DeviceRegistry(IConfiguration config)
         }
     }
 
+    public string AuthorizeTransport(Guid id, SessionCredentialsRequest request)
+    {
+        lock (gate)
+        {
+            var response = Status(id, request);
+            if (response.Status != "approved") throw new InvalidOperationException("Session is not approved or has expired.");
+            return sessions[id].TargetId == request.DeviceId ? "host" : "viewer";
+        }
+    }
+    public SessionResponse Stop(Guid id, SessionCredentialsRequest request)
+    {
+        lock (gate)
+        {
+            Status(id, request);
+            sessions[id].Status = "ended";
+            return sessions[id].Response(DateTimeOffset.UtcNow);
+        }
+    }
+    public void EndTransport(Guid id)
+    {
+        lock (gate) if (sessions.TryGetValue(id, out var session) && session.Status == "approved") session.Status = "ended";
+    }
     public void Grant(string ownerId, GrantAccessRequest request)
     {
         lock (gate)
@@ -132,8 +155,9 @@ public sealed class DeviceRegistry(IConfiguration config)
         if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(secret) || !devices.TryGetValue(id, out var d) || !CryptographicOperations.FixedTimeEquals(d.SecretHash, SHA256.HashData(Encoding.UTF8.GetBytes(secret)))) throw new UnauthorizedAccessException();
     }
     private sealed record Device(string Name, byte[] SecretHash) { public Dictionary<string, DateTimeOffset?> Trusted { get; } = new(); }
-    private sealed record Session(Guid Id, string RequesterId, string TargetId, DateTimeOffset ExpiresAt)
+    private sealed record Session(Guid Id, string RequesterId, string TargetId, DateTimeOffset InitialExpiresAt)
     {
+        public DateTimeOffset ExpiresAt { get; set; } = InitialExpiresAt;
         public string Status { get; set; } = "pending-owner-confirmation";
         public Session(Guid id, string requester, string target, string status, DateTimeOffset expires) : this(id, requester, target, expires) => Status = status;
         public SessionResponse Response(DateTimeOffset now) => new(Id, ExpiresAt <= now ? "expired" : Status, TargetId, ExpiresAt);

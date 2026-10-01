@@ -16,6 +16,9 @@ public partial class MainWindow : Window
     private RegisterDeviceResponse? device;
     private RotatingCodeResponse? code;
     private Guid? outgoing;
+    private RemoteWindow? remote;
+    private bool closed;
+    private int incomingCount;
     private bool busy;
     private DateTimeOffset nextPoll;
     private Uri server = new("https://anydesk.familyserver.su/");
@@ -42,8 +45,17 @@ public partial class MainWindow : Window
         }
         catch (Exception) { /* Manual check reports errors; startup remains usable offline. */ }
     }
-    private void Window_Closed(object? sender, EventArgs e) { timer.Stop(); lifetime.Cancel(); http.Dispose(); lifetime.Dispose(); }
-    private void Log(string text) { Status.Text = text; HistoryList.Items.Insert(0, $"{DateTime.Now:HH:mm:ss}  {text}"); if (HistoryList.Items.Count > 200) HistoryList.Items.RemoveAt(200); }
+    private void Window_Closed(object? sender, EventArgs e) { closed = true; remote?.Close(); timer.Stop(); lifetime.Cancel(); http.Dispose(); }
+    private void Log(string text) { if (closed) return; Status.Text = text; HistoryList.Items.Insert(0, $"{DateTime.Now:HH:mm:ss}  {text}"); if (HistoryList.Items.Count > 200) HistoryList.Items.RemoveAt(200); }
+    private void OpenRemote(Guid sessionId, bool host)
+    {
+        if (closed || device is null) return;
+        if (remote is not null) { remote.Activate(); return; }
+        remote = new RemoteWindow(server, device, sessionId, host);
+        remote.Closed += (_, _) => { remote = null; Log("Окно сеанса закрыто. Доступ остановлен."); };
+        remote.Show();
+        Log(host ? "Трансляция разрешена. Для остановки используйте окно сеанса или Ctrl+Alt+F12." : "Открываем удалённый рабочий стол…");
+    }
     private async Task<T> Post<T>(string path, object body)
     {
         using var response = await http.PostAsJsonAsync(new Uri(server, path), body, lifetime.Token);
@@ -59,6 +71,7 @@ public partial class MainWindow : Window
     private async Task RegisterAsync()
     {
         if (busy) return;
+        if (remote is not null) { Log("Сначала завершите активный сеанс."); return; }
         busy = true; SaveButton.IsEnabled = false; SetOnline(false); device = null; code = null; outgoing = null; RequestsList.ItemsSource = null; DeviceIdText.Text = RotatingCodeText.Text = "—";
         try { device = await Post<RegisterDeviceResponse>("api/devices", new RegisterDeviceRequest(Environment.MachineName, "Windows")); await RefreshCode(); SetOnline(true); Log("Устройство зарегистрировано. Можно отправлять и принимать запросы."); }
         catch (Exception ex) { ShowError(ex); }
@@ -79,13 +92,15 @@ public partial class MainWindow : Window
             RequestsList.ItemsSource = incoming.Select(x => new RequestItem(x, $"{x.RequesterDeviceName} · {Format(x.RequesterDeviceId)}")).ToArray();
             if (selected is not null) RequestsList.SelectedItem = RequestsList.Items.Cast<RequestItem>().FirstOrDefault(x => x.Value.SessionId == selected);
             RequestsEmpty.Text = incoming.Length == 0 ? "Новых запросов нет" : $"Ожидают подтверждения: {incoming.Length}";
-            if (outgoing is Guid id) { var result = await Post<SessionResponse>($"api/sessions/{id}/status", new SessionCredentialsRequest(device.DeviceId, device.DeviceSecret)); if (result.Status != "pending-owner-confirmation") { outgoing = null; Log(SessionText(result.Status)); } }
+            if (incoming.Length > incomingCount) Log($"Новый запрос доступа. Откройте «Запросы доступа»: ожидают {incoming.Length}.");
+            incomingCount = incoming.Length;
+            if (outgoing is Guid id) { var result = await Post<SessionResponse>($"api/sessions/{id}/status", new SessionCredentialsRequest(device.DeviceId, device.DeviceSecret)); if (result.Status != "pending-owner-confirmation") { outgoing = null; Log(SessionText(result.Status)); if (result.Status == "approved") OpenRemote(id, false); } }
             SetOnline(true);
         }
         catch (Exception ex) { SetOnline(false); ShowError(ex); nextPoll = DateTimeOffset.UtcNow.AddSeconds(15); }
         finally { busy = false; }
     }
-    private static string SessionText(string status) => status switch { "approved" => "Владелец разрешил запрос. Передача экрана пока не реализована.", "rejected" => "Владелец отклонил запрос.", "revoked" => "Доступ отозван.", "expired" => "Срок запроса истёк. Отправьте новый запрос.", _ => "Запрос отправлен. Ожидаем разрешения владельца." };
+    private static string SessionText(string status) => status switch { "approved" => "Владелец разрешил запрос. Открываем сеанс.", "rejected" => "Владелец отклонил запрос.", "revoked" => "Доступ отозван.", "ended" => "Сеанс завершён.", "expired" => "Срок запроса истёк. Отправьте новый запрос.", _ => "Запрос отправлен. Ожидаем разрешения владельца." };
     private void ShowError(Exception ex) { if (lifetime.IsCancellationRequested) return; Log(ex is HttpRequestException or TaskCanceledException ? "Сервер недоступен. Проверьте его запуск и адрес в настройках." : ex.Message); }
     private void CopyId_Click(object sender, RoutedEventArgs e) { if (device is null) return; try { Clipboard.SetText(device.DeviceId); Log("ID скопирован."); } catch (System.Runtime.InteropServices.COMException) { Log("Буфер обмена занят. Попробуйте ещё раз."); } }
     private async void Connect_Click(object sender, RoutedEventArgs e)
@@ -93,16 +108,24 @@ public partial class MainWindow : Window
         var value = ConnectionCode.Text.Trim();
         if (value.Length != 6 || value.Any(c => c < '0' || c > '9')) { Log("Введите ровно 6 цифр временного кода."); ConnectionCode.Focus(); return; }
         if (busy || device is null) return;
+        if (remote is not null || outgoing is not null) { Log("Сначала завершите текущий сеанс или дождитесь ответа владельца."); remote?.Activate(); return; }
         busy = true; ConnectButton.IsEnabled = false;
-        try { var result = await Post<SessionResponse>("api/sessions", new CreateSessionRequest(value, device.DeviceId, device.DeviceSecret)); outgoing = result.Status == "pending-owner-confirmation" ? result.SessionId : null; Log(SessionText(result.Status)); }
+        try { var result = await Post<SessionResponse>("api/sessions", new CreateSessionRequest(value, device.DeviceId, device.DeviceSecret)); outgoing = result.Status == "pending-owner-confirmation" ? result.SessionId : null; Log(SessionText(result.Status)); if (result.Status == "approved") OpenRemote(result.SessionId, false); }
         catch (Exception ex) { ShowError(ex); }
         finally { busy = false; ConnectButton.IsEnabled = device is not null; }
     }
     private async void Respond_Click(object sender, RoutedEventArgs e)
     {
         if (RequestsList.SelectedItem is not RequestItem item) { Log("Выберите входящий запрос."); return; }
-        if (busy || device is null) return; busy = true;
-        try { var action = (string)((Button)sender).Tag; await Post<SessionResponse>($"api/sessions/{item.Value.SessionId}/{action}", new ApproveSessionRequest(device.DeviceSecret)); Log(action == "approve" ? "Запрос разрешён. Передача экрана пока не реализована." : "Запрос отклонён."); nextPoll = DateTimeOffset.MinValue; }
+        if (busy || device is null) return;
+        var action = (string)((Button)sender).Tag;
+        if (action == "approve")
+        {
+            if (remote is not null) { Log("Сначала завершите активный сеанс."); remote.Activate(); return; }
+            if (MessageBox.Show($"Разрешить устройству {item.Value.RequesterDeviceName} ({item.Value.RequesterDeviceId}) видеть ваш основной экран и управлять мышью и клавиатурой?\n\nДля остановки: кнопка в окне трансляции или Ctrl+Alt+F12. Максимальная длительность — 1 час.", "Разрешение удалённого доступа", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        }
+        busy = true;
+        try { await Post<SessionResponse>($"api/sessions/{item.Value.SessionId}/{action}", new ApproveSessionRequest(device.DeviceSecret)); Log(action == "approve" ? "Запрос разрешён." : "Запрос отклонён."); if (action == "approve") OpenRemote(item.Value.SessionId, true); nextPoll = DateTimeOffset.MinValue; }
         catch (Exception ex) { ShowError(ex); }
         finally { busy = false; }
     }
@@ -119,6 +142,7 @@ public partial class MainWindow : Window
     {
         if (!Uri.TryCreate(ServerAddress.Text.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) || (uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback))) { Log("Укажите HTTPS-адрес сервера или HTTP-адрес localhost."); return; }
         if (busy) { Log("Дождитесь завершения текущего запроса."); return; }
+        if (remote is not null) { Log("Завершите сеанс перед сменой сервера."); return; }
         server = uri; await RegisterAsync();
     }
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
